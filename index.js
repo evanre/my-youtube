@@ -1,8 +1,7 @@
 const fs = require('fs');
 const { parsed: conf } = require('dotenv').config();
 const axios = require('axios').default;
-// const youtubedl = require('youtube-dl');
-const memoize = require('./memoize');
+const youtubedl = require('youtube-dl');
 
 const publishedAfter = (days) => {
   const now = new Date();
@@ -11,19 +10,22 @@ const publishedAfter = (days) => {
   return now.toISOString();
 }
 
-const getParams = memoize((type) => {
-  const params = Object.assign({}, r[type], { key: conf.API_KEY });
-  return Object
-    .entries(params)
-    .map(([key, val]) => `${key}=${val}`)
-    .join('&');
-});
+const chunk = (arr, len) => {
+  const chunks = [];
+  let i = 0;
+
+  while (i < arr.length) {
+    chunks.push(arr.slice(i, i += len));
+  }
+
+  return chunks;
+}
 
 const r = {
   url: 'https://www.googleapis.com/youtube/v3',
   subscriptions: {
     part: 'snippet',
-    maxResults: '3', // 0 to 50 max, 5 is default
+    maxResults: '2', // 0 to 50 max, 5 is default
     channelId: conf.MY_CHANNEL_ID,
   },
   search: {
@@ -36,41 +38,59 @@ const r = {
   },
   channels: {
     part: 'contentDetails',
-    maxResults: '3', // 0 to 50 max, 5 is default
+    maxResults: '50', // 0 to 50 max, 5 is default
   }
 }
 
-const getRequest = (type, done, arr = [], customParams = '', limit = 0) => {
-  const params = getParams(type);
-  console.log( `${r.url}/${type}?${params}${customParams}` );
-  axios.get(`${r.url}/${type}?${params}${customParams}`)
-    .then(({ data }) => {
-      arr.push(...data.items);
+const go = async () => {
+  const getRequest = async (type, customParams = {}) => {
+    const url = `${r.url}/${type}`;
+    const items = [];
 
-      if ( data.nextPageToken && limit < 1 ) {
-        getRequest(type, done, arr, `&pageToken=${data.nextPageToken}`, limit + 1);
-      } else {
-        done(arr);
-      }
-    })
-    .catch(function (error) {
-      console.log('Error', error);
-    })
+    let pageToken = false;
+    let limit = 0;
+
+    const params = {
+      ...r[type],
+      ...customParams,
+      key: conf.API_KEY,
+    };
+
+    do {
+      await axios.get(url, { params })
+        .then(({ data }) => {
+          items.push(...data.items);
+
+          limit++;
+          params.pageToken = data.nextPageToken;
+        })
+        .catch(function (error) {
+          console.log('Error', error);
+        })
+    } while (params.pageToken && limit < 3);
+
+    return items;
+  }
+
+  let subs = await getRequest('subscriptions');
+  subs = subs.map(channel => ({
+    title: channel.snippet.title,
+    id: channel.snippet.resourceId.channelId,
+    link: `https://youtube.com/channel/${channel.snippet.resourceId.channelId}/videos`
+  }));
+
+  console.log( `Got ${subs.length} channels user subscribed on` );
+
+  // Get uploaded videos playlists
+  // let playlists = await Promise.all(chunk(subs, 50).map(async(chunk) => {
+  //   const id = chunk.map(({ id }) => id).join(',');
+  //   const results = await getRequest('channels', { id });
+  //   return results.map((result) => result.contentDetails.relatedPlaylists.uploads);
+  // }));
+  // playlists = playlists
+  //   .flat(2)
+  //   .map((id) => ({ id, link: `https://youtube.com/playlist?list=${id}` }))
+  // ;
 }
 
-// console.log( publishedAfter(30) );
-// function requireLatestVideos(ids) {
-// }
-
-getRequest('subscriptions', (channels) => {
-  channels
-    .map(channel => ({title: channel.snippet.title, id: channel.snippet.resourceId.channelId}))
-    .forEach((channel) => {
-    console.log( channel );
-    // getRequest('search', (videos) => {
-    //   console.log( videos );
-      // requireLatestVideos(arr)
-    // }, [], `&channelId=${id}`);
-  });
-});
-
+go();
