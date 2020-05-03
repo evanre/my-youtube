@@ -1,13 +1,11 @@
-const fs = require('fs');
+const { spawn } = require("child_process");
 const { parsed: conf } = require('dotenv').config();
 const axios = require('axios').default;
-const youtubedl = require('youtube-dl');
 
-const publishedAfter = (days) => {
-  const now = new Date();
-  now.setDate(now.getDate() - days);
-
-  return now.toISOString();
+async function asyncForEach(array, callback) {
+  for (let index = 0; index < array.length; index++) {
+    await callback(array[index], index, array);
+  }
 }
 
 const chunk = (arr, len) => {
@@ -23,18 +21,11 @@ const chunk = (arr, len) => {
 
 const r = {
   url: 'https://www.googleapis.com/youtube/v3',
+  globalLimit: 100,
   subscriptions: {
     part: 'snippet',
-    maxResults: '2', // 0 to 50 max, 5 is default
+    maxResults: '50', // 0 to 50 max, 5 is default
     channelId: conf.MY_CHANNEL_ID,
-  },
-  search: {
-    part: 'snippet',
-    // part: 'id',
-    // channelId: 'UCoy0duz0ZzVzL91-E75Mw7w',
-    order: 'date',
-    publishedAfter: publishedAfter(1),
-    type: 'video',
   },
   channels: {
     part: 'contentDetails',
@@ -42,13 +33,46 @@ const r = {
   }
 }
 
+const download = ({ url }) => new Promise((resolve, reject) => {
+  const params = [
+    url,
+    '--ignore-errors', // Continue on download errors, for example to skip unavailable videos in a playlist
+    '--continue', // Force resume of partially downloaded files.
+    '--stopatfirst', // Stop downloading of further videos when the first video is not in daterange (custom feature, not implemented in official build)
+    '--dateafter now-1week', // Download only videos uploaded on or after this date (i.e. inclusive)
+    // '--restrict-filenames', // splits cyrillic symbols
+    '--output videos/%(upload_date)s--%(uploader)s--%(title)s--%(id)s.%(ext)s', // be careful with spaces!
+    '--format best',
+  ].join(' ').split(' ');
+
+  const ytdl = spawn('./youtube-dl', params);
+
+  ytdl.stdout.on("data", data => {
+    process.stdout.write(data.toString())
+  });
+
+  ytdl.stderr.on("data", data => {
+    console.log(`stderr: ${data}`);
+    reject();
+  });
+
+  ytdl.on('error', (error) => {
+    console.log(`error: ${error.message}`);
+    reject();
+  });
+
+  ytdl.on("close", (code) => {
+    console.log(`child process exited with code ${code}`);
+    resolve();
+  });
+});
+
 const go = async () => {
   const getRequest = async (type, customParams = {}) => {
     const url = `${r.url}/${type}`;
     const items = [];
 
-    let pageToken = false;
-    let limit = 0;
+    let counter = 0;
 
     const params = {
       ...r[type],
@@ -61,28 +85,34 @@ const go = async () => {
         .then(({ data }) => {
           items.push(...data.items);
 
-          limit++;
+          counter++;
           params.pageToken = data.nextPageToken;
         })
         .catch(function (error) {
           console.log('Error', error);
         })
-    } while (params.pageToken && limit < 3);
+    } while (params.pageToken && counter < r.globalLimit);
 
     return items;
   }
 
-  let subs = await getRequest('subscriptions');
-  subs = subs.map(channel => ({
+  let subscriptions = await getRequest('subscriptions');
+  subscriptions = subscriptions.map(channel => ({
     title: channel.snippet.title,
     id: channel.snippet.resourceId.channelId,
-    link: `https://youtube.com/channel/${channel.snippet.resourceId.channelId}/videos`
+    url: `https://youtube.com/channel/${channel.snippet.resourceId.channelId}/videos`,
   }));
 
-  console.log( `Got ${subs.length} channels user subscribed on` );
+  console.log( `Got ${subscriptions.length} channels user subscribed on` );
+
+  asyncForEach(subscriptions, async (item, i, arr) => {
+    console.log( '----------------------------------------------' );
+    console.log( `Get videos from [${i + 1}/${arr.length}] "${item.title}", url: ${item.url}` );
+    await download(item)
+  })
 
   // Get uploaded videos playlists
-  // let playlists = await Promise.all(chunk(subs, 50).map(async(chunk) => {
+  // let playlists = await Promise.all(chunk(subscriptions, 50).map(async(chunk) => {
   //   const id = chunk.map(({ id }) => id).join(',');
   //   const results = await getRequest('channels', { id });
   //   return results.map((result) => result.contentDetails.relatedPlaylists.uploads);
