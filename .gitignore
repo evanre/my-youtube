@@ -1,0 +1,13 @@
+*.DS_Store
+.idea/
+node_modules
+build
+export
+.sass-cache/
+npm-debug.log
+temp/
+*.swp
+.templates
+.download
+bower_components
+.env
