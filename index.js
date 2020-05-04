@@ -1,5 +1,5 @@
 const { spawn } = require("child_process");
-const { parsed: conf } = require('dotenv').config();
+const { parsed: conf } = require('dotenv').config({ path: __dirname + '/.env' });
 const axios = require('axios').default;
 
 async function asyncForEach(array, callback) {
