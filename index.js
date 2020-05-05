@@ -41,7 +41,7 @@ const download = ({ url }) => new Promise((resolve, reject) => {
     '--stopatfirst', // Stop downloading of further videos when the first video is not in daterange (custom feature, not implemented in official build)
     '--dateafter now-1week', // Download only videos uploaded on or after this date (i.e. inclusive)
     // '--restrict-filenames', // splits cyrillic symbols
-    '--output videos/%(upload_date)s--%(uploader)s--%(title)s--%(id)s.%(ext)s', // be careful with spaces!
+    `--output ${conf.VIDEOS_PATH}%(upload_date)s--%(uploader)s--%(title)s--%(id)s.%(ext)s`, // be careful with spaces!
     '--format best',
   ].join(' ').split(' ');
 
