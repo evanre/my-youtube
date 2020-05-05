@@ -11,3 +11,5 @@ temp/
 .download
 bower_components
 .env
+
+channels.json
