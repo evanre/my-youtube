@@ -1,8 +1,12 @@
-const fs = require('fs')
+const fs = require('fs');
+const path = require('path');
+const readline = require('readline');
+const glob = require('glob');
 const { spawn } = require("child_process");
 const { parsed: conf } = require('dotenv').config({ path: __dirname + '/.env' });
 const axios = require('axios').default;
-const ytpl = require('ytpl');
+const ytdl = require('ytdl-core');
+const ffmpeg = require('fluent-ffmpeg');
 
 async function asyncForEach(array, callback) {
   for (let index = 0; index < array.length; index++) {
@@ -45,14 +49,14 @@ const r = {
   search: {
     part: 'id',
     order: 'date',
-    publishedAfter: publishedAfter(7),
+    publishedAfter: publishedAfter(2),
     maxResults: '50', // 0 to 50 max, 5 is default
   }
 }
 
-const download = ({ url }) => new Promise((resolve, reject) => {
+const download = ({ id }) => new Promise((resolve, reject) => {
   const params = [
-    url,
+    `https://www.youtube.com/watch?v=${id}`,
     '--ignore-errors', // Continue on download errors, for example to skip unavailable videos in a playlist
     '--continue', // Force resume of partially downloaded files.
     '--stopatfirst', // Stop downloading of further videos when the first video is not in daterange (custom feature, not implemented in official build)
@@ -120,7 +124,7 @@ const go = async () => {
         return type !== 'snippet' ? channels : channels.map(channel => ({
           title: channel.snippet.title,
           id: channel.snippet.resourceId.channelId,
-          url: `https://youtube.com/channel/${channel.snippet.resourceId.channelId}/videos`,
+          // url: `https://youtube.com/channel/${channel.snippet.resourceId.channelId}/videos`,
         }));
       });
   };
@@ -141,7 +145,7 @@ const go = async () => {
 
     // const fetched = await fetchChannels('id');
 
-    // Exit if amount of subscription channels changed
+    // Exit if amount of subscribed channels changed
     if (!r.skipLengthCheck && stored.length !== (await fetchChannels('id')).length) return false;
 
     return stored;
@@ -155,9 +159,7 @@ const go = async () => {
       fs.writeFileSync(r.channelsFile, JSON.stringify(subscriptions, null, 2));
   }
 
-  console.log( subscriptions );
-
-  // console.log( `Got ${subscriptions.length} channels user subscribed on` );
+  console.log( `Got ${subscriptions.length} channels user subscribed on` );
 
   // asyncForEach(subscriptions, async (item, i, arr) => {
   //   console.log( '----------------------------------------------' );
@@ -181,12 +183,81 @@ const go = async () => {
   //   .map((id) => ({ id, link: `https://youtube.com/playlist?list=${id}` }))
   // ;
 
-  // Get uploaded videos
-  // asyncForEach(subscriptions, async (item, i, arr) => {
-    // console.log( '----------------------------------------------' );
-    // console.log( item );
-    // const results = await getRequest('search', { channelId: item.id });
-    // console.log( results );
+  let counter = 0;
+  const testVideos = [
+    {
+      id: 'wZC5cT7CEDA',
+    },{
+      id: 'qbI8pJ3tSlk',
+    },{
+      id: 'TJ2PYSnBPzo',
+    },{
+      id: 'cxKAdTP29GY',
+    },{
+      id: 'l3m_XghzSk4',
+    },{
+      id: 'kcEYByNho_s',
+    },{
+      id: 'e8KdfBHBMUE',
+    },{
+      id: 'm0SsrXsJzqw',
+    },{
+      id: 'xns54ioHCAQ',
+    },{
+      id: 'TBf4C6rTogs',
+    },{
+      id: 'VpuU6VgWulc',
+    },{
+      id: 'z0d6mP1wfZQ',
+    },{
+      id: '2095L48nOiM',
+    },{
+      id: '_7tcpzFRN4s',
+    },{
+      id: 'JCiEkVfuqbc',
+    },{
+      id: '48bK3mmjgRE',
+    },{
+      id: 'VvZRlYJ81SM',
+    },{
+      id: 'B95ZJiM5LF0',
+    },
+  ]
+  const testfunc = () => {
+    return new Promise(resolve => {
+      setTimeout(() => {
+        resolve(testVideos[counter++] || []);
+      }, 250);
+    });
+  }
+
+  // Get list of uploaded videos and filter already downloaded ones
+  const videos = await Promise.all(subscriptions.map(async(item) => {
+    return testfunc();
+    // Request published videos for given period for evey channel
+    // return await getRequest('search', { channelId: item.id });
+  }))
+    // Flat received arrays (remove empty arrays,
+    // it means that channel didn't publish anything for given period)
+    .then(arr => arr
+      .flat()
+      .filter(f => !(glob.sync(`${conf.VIDEOS_PATH}/*${f.id}.mp4`)).length)
+      // .map(f => f.id)
+    );
+
+  console.log( videos );
+  //
+  // ytdl.getInfo(videos[0].id, (err, info) => {
+  //   if (err) throw err;
+  //   console.log( info );
+  // })
+  // console.log( files );
+
+  /*asyncForEach(subscriptions, async (item, i, arr) => {
+    console.log( '----------------------------------------------' );
+    console.log( item );
+    const results = await getRequest('search', { channelId: item.id });
+    console.log( results );
     // console.log( `Get videos from [${i + 1}/${arr.length}] "${item.title}", url: ${item.url}` );
 
     // ytpl(item.url, { limit: 5 }, function(err, playlist) {
@@ -194,18 +265,65 @@ const go = async () => {
     //   console.log( playlist );
     // });
     // await download(item)
-  // })
-  
-  
-  // https://www.googleapis.com/youtube/v3/search?part=snippet&channelId=UCJHTQG_K8l2A2ZE4ohxcLyQ&order=date&publishedAfter=2020-05-02T10%3A42%3A55.470Z&key=[YOUR_API_KEY]
+  })*/
 
 
-  //let subscriptions = await getRequest('subscriptions');
-  //subscriptions = subscriptions.map(channel => ({
-  //  title: channel.snippet.title,
-  //  id: channel.snippet.resourceId.channelId,
-  //  url: `https://youtube.com/channel/${channel.snippet.resourceId.channelId}/videos`,
-  //}));
+  const url = 'https://www.youtube.com/watch?v=48bK3mmjgRE';
+  const audioOutput = path.resolve(__dirname, 'sound.mp4');
+  const mainOutput = path.resolve(__dirname, 'output.mp4');
+
+  const onProgress = (chunkLength, downloaded, total) => {
+    const percent = downloaded / total;
+    readline.cursorTo(process.stdout, 0);
+    process.stdout.write(`${(percent * 100).toFixed(2)}% downloaded `);
+    process.stdout.write(`(${(downloaded / 1024 / 1024).toFixed(2)}MB of ${(total / 1024 / 1024).toFixed(2)}MB)`);
+  };
+  console.log(audioOutput);
+
+  const download2 = (id) => {
+    const video = `${conf.VIDEOS_PATH}/video-${id}.mp4`;
+    const audio = `${conf.VIDEOS_PATH}/audio-${id}.mp4`;
+
+    console.log('downloading audio track');
+
+    ytdl(id)
+      .pipe(fs.createWriteStream('video.flv'));
+
+    /*ytdl(id, {
+      filter: format => {
+        console.log( format );
+        return format.container === 'mp4' && !format.qualityLabel;
+      },
+    })
+      .on('error', console.error)
+      .on('info', (info, format) => {
+      })
+      .on('progress', onProgress)
+      // Write audio to file since ffmpeg supports only one input stream.
+      .pipe(fs.createWriteStream(audioOutput))
+      .on('finish', () => {
+        console.log('\ndownloading video');
+        const video = ytdl(id, {
+          filter: format => format.container === 'mp4' && !format.audioEncoding,
+        });
+        video.on('progress', onProgress);
+        ffmpeg()
+          .input(video)
+          .videoCodec('copy')
+          .input(audioOutput)
+          .audioCodec('copy')
+          .save(mainOutput)
+          .on('error', console.error)
+          .on('end', () => {
+            fs.unlink(audioOutput, err => {
+              if (err) console.error(err);
+              else console.log(`\nfinished downloading, saved to ${mainOutput}`);
+            });
+          });
+      });*/
+  }
+
+  download(videos[0])
 }
 
 go();

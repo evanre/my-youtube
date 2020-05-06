@@ -12,4 +12,5 @@ temp/
 bower_components
 .env
 
+videos
 channels.json

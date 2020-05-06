@@ -11,7 +11,8 @@
   "dependencies": {
     "axios": "^0.19.2",
     "dotenv": "^8.2.0",
-    "ytpl": "^0.1.20",
-    "ytdl-core": "^2.1.1"
+    "glob": "^7.1.6",
+    "ytdl-core": "^2.1.1",
+    "fluent-ffmpeg": "^2.1.2"
   }
 }
