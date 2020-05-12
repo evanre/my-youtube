@@ -2,7 +2,7 @@ const fs = require('fs');
 const path = require('path');
 const readline = require('readline');
 const glob = require('glob');
-const { spawn } = require("child_process");
+const { spawn } = require('child_process');
 const { parsed: conf } = require('dotenv').config({ path: __dirname + '/.env' });
 const axios = require('axios').default;
 const ytdl = require('ytdl-core');
@@ -34,21 +34,15 @@ const chunk = (arr, len) => {
 
 const r = {
   url: 'https://www.googleapis.com/youtube/v3',
-  globalLimit: 2,
+  globalLimit: 100,
   channelsFile: './channels.json',
-  skipLengthCheck: true,
+  skipLengthCheck: false,
   subscriptions: {
-    part: 'snippet',
-    maxResults: '2', // 0 to 50 max, 5 is default
+    maxResults: '50', // 0 to 50 max, 5 is default
     channelId: conf.MY_CHANNEL_ID,
   },
-  channels: {
-    part: 'contentDetails',
-    maxResults: '50', // 0 to 50 max, 5 is default
-  },
-  search: {
-    part: 'id',
-    order: 'date',
+  activities: {
+    part: 'snippet',
     publishedAfter: publishedAfter(2),
     maxResults: '50', // 0 to 50 max, 5 is default
   }
@@ -88,70 +82,76 @@ const download = ({ id }) => new Promise((resolve, reject) => {
   });
 });
 
-const go = async () => {
-  const getRequest = async (type, customParams = {}) => {
-    const url = `${r.url}/${type}`;
-    const items = [];
+const getRequest = async (type, customParams = {}) => {
+  const url = `${r.url}/${type}`;
+  const items = [];
 
-    let counter = 0;
+  let counter = 0;
 
-    const params = {
-      ...r[type],
-      ...customParams,
-      key: conf.API_KEY,
-    };
-
-    do {
-      await axios.get(url, { params })
-        .then(({ data }) => {
-          items.push(...data.items);
-
-          counter++;
-          params.pageToken = data.nextPageToken;
-        })
-        .catch(function (error) {
-          console.log('Error', error);
-        })
-    } while (params.pageToken && counter < r.globalLimit);
-
-    return items;
-  }
-
-  const fetchChannels = async (type) => {
-    console.log( `Fetch subscriptions for part: ${type}` );
-    return await getRequest('subscriptions', { part: type })
-      .then((channels) => {
-        return type !== 'snippet' ? channels : channels.map(channel => ({
-          title: channel.snippet.title,
-          id: channel.snippet.resourceId.channelId,
-          // url: `https://youtube.com/channel/${channel.snippet.resourceId.channelId}/videos`,
-        }));
-      });
+  const params = {
+    ...r[type],
+    ...customParams,
+    key: conf.API_KEY,
   };
 
+  do {
+    await axios.get(url, { params })
+      .then(({ data }) => {
+        items.push(...data.items);
+
+        counter++;
+        params.pageToken = data.nextPageToken;
+      })
+      .catch(function (error) {
+        console.log('Error', error);
+      })
+  } while (params.pageToken && counter < r.globalLimit);
+
+  return items;
+}
+
+const getIfFromThumb = (url) => {
+  return /vi\/(.+)\//g.exec(url)[1];
+}
+
+const fetchChannels = async (type) => {
+  console.log( `Fetch subscriptions for part: ${type}` );
+  return await getRequest('subscriptions', { part: type })
+    .then(async (channels) => {
+      return type !== 'snippet' ? channels : channels.map((channel, idx) => ({
+        idx: idx + 1,
+        title: channel.snippet.title,
+        id: channel.snippet.resourceId.channelId,
+        // url: `https://youtube.com/channel/${channel.snippet.resourceId.channelId}/videos`,
+      }));
+    });
+};
+
+const go = async () => {
   // Get subscribed channels
   const checkFile = async () => {
     // Exit if file doesn't exist
     if (!fs.existsSync(r.channelsFile)) return false;
 
+    // Read the file
     let stored = await fs.readFileSync(r.channelsFile, { encoding: 'utf-8' });
 
     try {
+      // Parse content to JSON
       stored = JSON.parse(stored);
     } catch (e) {
       // Exit if file can't be parsed
       return false;
     }
 
-    // const fetched = await fetchChannels('id');
-
     // Exit if amount of subscribed channels changed
     if (!r.skipLengthCheck && stored.length !== (await fetchChannels('id')).length) return false;
 
+    console.log( 'Got list from file' );
     return stored;
   }
 
-  // Check file, fetch new list and update file if something wrong
+  // Check file, fetch new list and update file if something is wrong
   let subscriptions = await checkFile();
   if (!subscriptions) {
       console.log( 'Get new list and store it' );
@@ -160,17 +160,6 @@ const go = async () => {
   }
 
   console.log( `Got ${subscriptions.length} channels user subscribed on` );
-
-  // asyncForEach(subscriptions, async (item, i, arr) => {
-  //   console.log( '----------------------------------------------' );
-  //   console.log( `Get videos from [${i + 1}/${arr.length}] "${item.title}", url: ${item.url}` );
-  //
-  //   ytpl(item.url, { limit: 5 }, function(err, playlist) {
-  //     if(err) throw err;
-  //     console.log( playlist );
-  //   });
-  //   // await download(item)
-  // })
 
   // Get uploaded videos playlists
   // let playlists = await Promise.all(chunk(subscriptions, 50).map(async(chunk) => {
@@ -183,102 +172,54 @@ const go = async () => {
   //   .map((id) => ({ id, link: `https://youtube.com/playlist?list=${id}` }))
   // ;
 
-  let counter = 0;
-  const testVideos = [
-    {
-      id: 'wZC5cT7CEDA',
-    },{
-      id: 'qbI8pJ3tSlk',
-    },{
-      id: 'TJ2PYSnBPzo',
-    },{
-      id: 'cxKAdTP29GY',
-    },{
-      id: 'l3m_XghzSk4',
-    },{
-      id: 'kcEYByNho_s',
-    },{
-      id: 'e8KdfBHBMUE',
-    },{
-      id: 'm0SsrXsJzqw',
-    },{
-      id: 'xns54ioHCAQ',
-    },{
-      id: 'TBf4C6rTogs',
-    },{
-      id: 'VpuU6VgWulc',
-    },{
-      id: 'z0d6mP1wfZQ',
-    },{
-      id: '2095L48nOiM',
-    },{
-      id: '_7tcpzFRN4s',
-    },{
-      id: 'JCiEkVfuqbc',
-    },{
-      id: '48bK3mmjgRE',
-    },{
-      id: 'VvZRlYJ81SM',
-    },{
-      id: 'B95ZJiM5LF0',
-    },
-  ]
-  const testfunc = () => {
-    return new Promise(resolve => {
-      setTimeout(() => {
-        resolve(testVideos[counter++] || []);
-      }, 250);
-    });
-  }
-
   // Get list of uploaded videos and filter already downloaded ones
-  const videos = await Promise.all(subscriptions.map(async(item) => {
-    return testfunc();
-    // Request published videos for given period for evey channel
-    // return await getRequest('search', { channelId: item.id });
+  const activities = await Promise.all(subscriptions.map(async(subscription, idx) => {
+    return getRequest('activities', { channelId: subscription.id })
   }))
-    // Flat received arrays (remove empty arrays,
-    // it means that channel didn't publish anything for given period)
-    .then(arr => arr
-      .flat()
-      .filter(f => !(glob.sync(`${conf.VIDEOS_PATH}/*${f.id}.mp4`)).length)
-      // .map(f => f.id)
+    .then((arr) => arr
+      .reduce((acc, els) => {
+        if (els.length) {
+          const filteredItems = els
+            .filter(({ snippet }) => snippet.type === 'upload')
+            .map(({ snippet }) => ({
+              id: getIfFromThumb(snippet.thumbnails.default.url),
+              title: snippet.title,
+              channelId: snippet.channelId,
+              channelTitle: snippet.channelTitle,
+            }));
+          acc.push(...filteredItems);
+        }
+        return acc;
+      }, [])
+      //.filter(f => !(glob.sync(`${conf.VIDEOS_PATH}/!*${f.id}.mp4`)).length)
     );
 
-  console.log( videos );
-  //
-  // ytdl.getInfo(videos[0].id, (err, info) => {
-  //   if (err) throw err;
-  //   console.log( info );
-  // })
-  // console.log( files );
+  console.log( activities );
+  console.log( activities.length );
+  console.log( (new Set (...activities.map(i => i.id))).size );
 
-  /*asyncForEach(subscriptions, async (item, i, arr) => {
-    console.log( '----------------------------------------------' );
-    console.log( item );
-    const results = await getRequest('search', { channelId: item.id });
-    console.log( results );
-    // console.log( `Get videos from [${i + 1}/${arr.length}] "${item.title}", url: ${item.url}` );
+  // asyncForEach(videos, async (item, i, arr) => {
+  //   console.log( '----------------------------------------------' );
+  //   console.log( `Get videos from [${i + 1}/${arr.length}] "${item.title}", url: ${item.url}` );
 
     // ytpl(item.url, { limit: 5 }, function(err, playlist) {
     //   if(err) throw err;
     //   console.log( playlist );
     // });
     // await download(item)
-  })*/
+  // })
 
-
-  const url = 'https://www.youtube.com/watch?v=48bK3mmjgRE';
-  const audioOutput = path.resolve(__dirname, 'sound.mp4');
-  const mainOutput = path.resolve(__dirname, 'output.mp4');
-
-  const onProgress = (chunkLength, downloaded, total) => {
-    const percent = downloaded / total;
-    readline.cursorTo(process.stdout, 0);
-    process.stdout.write(`${(percent * 100).toFixed(2)}% downloaded `);
-    process.stdout.write(`(${(downloaded / 1024 / 1024).toFixed(2)}MB of ${(total / 1024 / 1024).toFixed(2)}MB)`);
-  };
-  console.log(audioOutput);
+  // const url = 'https://www.youtube.com/watch?v=48bK3mmjgRE';
+  // const audioOutput = path.resolve(__dirname, 'sound.mp4');
+  // const mainOutput = path.resolve(__dirname, 'output.mp4');
+  //
+  // const onProgress = (chunkLength, downloaded, total) => {
+  //   const percent = downloaded / total;
+  //   readline.cursorTo(process.stdout, 0);
+  //   process.stdout.write(`${(percent * 100).toFixed(2)}% downloaded `);
+  //   process.stdout.write(`(${(downloaded / 1024 / 1024).toFixed(2)}MB of ${(total / 1024 / 1024).toFixed(2)}MB)`);
+  // };
+  // console.log(audioOutput);
 
   const download2 = (id) => {
     const video = `${conf.VIDEOS_PATH}/video-${id}.mp4`;
@@ -289,41 +230,41 @@ const go = async () => {
     ytdl(id)
       .pipe(fs.createWriteStream('video.flv'));
 
-    /*ytdl(id, {
-      filter: format => {
-        console.log( format );
-        return format.container === 'mp4' && !format.qualityLabel;
-      },
-    })
-      .on('error', console.error)
-      .on('info', (info, format) => {
-      })
-      .on('progress', onProgress)
-      // Write audio to file since ffmpeg supports only one input stream.
-      .pipe(fs.createWriteStream(audioOutput))
-      .on('finish', () => {
-        console.log('\ndownloading video');
-        const video = ytdl(id, {
-          filter: format => format.container === 'mp4' && !format.audioEncoding,
-        });
-        video.on('progress', onProgress);
-        ffmpeg()
-          .input(video)
-          .videoCodec('copy')
-          .input(audioOutput)
-          .audioCodec('copy')
-          .save(mainOutput)
-          .on('error', console.error)
-          .on('end', () => {
-            fs.unlink(audioOutput, err => {
-              if (err) console.error(err);
-              else console.log(`\nfinished downloading, saved to ${mainOutput}`);
-            });
-          });
-      });*/
+    // ytdl(id, {
+    //   filter: format => {
+    //     console.log( format );
+    //     return format.container === 'mp4' && !format.qualityLabel;
+    //   },
+    // })
+    //   .on('error', console.error)
+    //   .on('info', (info, format) => {
+    //   })
+    //   .on('progress', onProgress)
+    //   // Write audio to file since ffmpeg supports only one input stream.
+    //   .pipe(fs.createWriteStream(audioOutput))
+    //   .on('finish', () => {
+    //     console.log('\ndownloading video');
+    //     const video = ytdl(id, {
+    //       filter: format => format.container === 'mp4' && !format.audioEncoding,
+    //     });
+    //     video.on('progress', onProgress);
+    //     ffmpeg()
+    //       .input(video)
+    //       .videoCodec('copy')
+    //       .input(audioOutput)
+    //       .audioCodec('copy')
+    //       .save(mainOutput)
+    //       .on('error', console.error)
+    //       .on('end', () => {
+    //         fs.unlink(audioOutput, err => {
+    //           if (err) console.error(err);
+    //           else console.log(`\nfinished downloading, saved to ${mainOutput}`);
+    //         });
+    //       });
+    //   });
   }
 
-  download(videos[0])
+  // download(videos[0])
 }
 
 go();
