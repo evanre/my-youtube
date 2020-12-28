@@ -1,0 +1,31 @@
+version: "2.1"
+services:
+  myt:
+    image: ghcr.io/linuxserver/baseimage-alpine:3.12
+    container_name: myt
+    environment:
+      - PUID=1000
+      - PGID=1000
+      - TZ=Europe/Kyiv
+      - API_KEY=${API_KEY}
+      - MY_CHANNEL_ID=${MY_CHANNEL_ID}
+      - VIDEOS_PATH=/videos
+      - MONGO_HOST=mongo:27017
+    volumes:
+      - ./config:/config
+      - ./videos:/videos
+    ports:
+    - 8080:80
+    restart: unless-stopped
+    depends_on:
+      - mongo
+
+  mongo:
+    image: mongo
+    container_name: mongo
+    environment:
+      - MONGO_INITDB_ROOT_USERNAME=mongoadmin
+      - MONGO_INITDB_ROOT_PASSWORD=secret
+    volumes:
+      - ./data:/data/db
+    restart: unless-stopped

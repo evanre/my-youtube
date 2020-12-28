@@ -1,16 +1,14 @@
 *.DS_Store
 .idea/
-node_modules
-build
-export
-.sass-cache/
-npm-debug.log
-temp/
-*.swp
-.templates
-.download
-bower_components
-.env
+.vscode/
+node_modules/
+youtube-dl*
 
-videos
-channels.json
+.env
+config/channels.json
+
+videos/*
+!videos/.gitkeep
+
+data/*
+!data/.gitkeep
